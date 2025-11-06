@@ -728,7 +728,9 @@ def cmd_spawn_task(args):
 
     params_json = build_json_params(options.params, options.base_params)
 
-    headers_json = "NULL"
+    # Build options object for spawn_task
+    task_options = {}
+
     if options.headers:
         headers_dict = {}
         for header in options.headers:
@@ -740,9 +742,11 @@ def cmd_spawn_task(args):
                 sys.exit(1)
             key, value = header.split("=", 1)
             headers_dict[key] = value
-        headers_json = f"'{json.dumps(headers_dict)}'::jsonb"
+        task_options["headers"] = headers_dict
 
-    retry_json = "NULL"
+    if options.max_attempts:
+        task_options["max_attempts"] = options.max_attempts
+
     if (
         options.retry_kind
         or options.retry_base
@@ -756,16 +760,17 @@ def cmd_spawn_task(args):
             retry["factor"] = options.retry_factor
         if options.retry_max:
             retry["maxSeconds"] = options.retry_max
-        retry_json = f"'{json.dumps(retry)}'::jsonb"
+        task_options["retry_strategy"] = retry
 
-    cancellation_json = "NULL"
     if options.max_duration or options.max_delay:
         cancellation = {}
         if options.max_duration:
             cancellation["maxDuration"] = options.max_duration
         if options.max_delay:
             cancellation["maxDelay"] = options.max_delay
-        cancellation_json = f"'{json.dumps(cancellation)}'::jsonb"
+        task_options["cancellation"] = cancellation
+
+    options_json = json.dumps(task_options)
 
     queue = options.queue or "default"
 
@@ -776,14 +781,8 @@ def cmd_spawn_task(args):
         ("Queue", queue),
         ("Params", params_json),
     ]
-    if headers_json != "NULL":
-        details.append(("Headers", headers_json))
-    if options.max_attempts:
-        details.append(("Max attempts", options.max_attempts))
-    if retry_json != "NULL":
-        details.append(("Retry strategy", retry_json))
-    if cancellation_json != "NULL":
-        details.append(("Cancellation", cancellation_json))
+    if task_options:
+        details.append(("Options", options_json))
     details.extend(get_common_db_details(config))
     print_verbose_configuration(options.verbose, details)
 
@@ -793,10 +792,7 @@ def cmd_spawn_task(args):
             '{queue}',
             '{task_name}',
             '{params_json}'::jsonb,
-            {headers_json},
-            {options.max_attempts or "NULL"},
-            {retry_json},
-            {cancellation_json}
+            '{options_json}'::jsonb
         );
     """
 
